@@ -356,6 +356,7 @@ function sendPeriodSummary() {
       </div>
 
       <div class="field"><label>Apps Script URL</label><input id="s-url" type="text" placeholder="https://script.google.com/macros/s/…/exec"></div>
+      <div class="conn-row" style="margin:-6px 0 12px"><button class="btn btn-g" type="button" onclick="runConnectionTest('s-url','s-url-status')">Test connection</button><span class="conn-status" id="s-url-status"></span></div>
       <div class="field"><label>Budget per period (CHF)</label><input id="s-budget" type="number" value="1800"></div>
       <div class="field"><label>Period start day</label><input id="s-startday" type="number" value="10"></div>
       <div class="flex mt16"><button class="btn btn-p" onclick="setup()">Connect & Launch →</button></div>
@@ -412,7 +413,7 @@ function sendPeriodSummary() {
 
   <div class="chart-panel chart-single">
     <div class="chart-title">Daily Cumulative Spending — this period</div>
-    <canvas id="chart-line" height="120"></canvas>
+    <div class="chart-host"><canvas id="chart-line"></canvas></div>
   </div>
 
   <div class="two-col">
@@ -525,16 +526,16 @@ function sendPeriodSummary() {
   <div class="two-col" style="margin-bottom:14px">
     <div class="chart-panel">
       <div class="chart-title">Total Spent vs Budget — per period</div>
-      <canvas id="m-chart-bar" height="180"></canvas>
+      <div class="chart-host"><canvas id="m-chart-bar"></canvas></div>
     </div>
     <div class="chart-panel">
       <div class="chart-title">Saving per period</div>
-      <canvas id="m-chart-saving" height="180"></canvas>
+      <div class="chart-host"><canvas id="m-chart-saving"></canvas></div>
     </div>
   </div>
   <div class="chart-panel" style="margin-bottom:14px">
     <div class="chart-title">Category breakdown — per period</div>
-    <canvas id="m-chart-cats" height="160"></canvas>
+    <div class="chart-host" style="height:280px"><canvas id="m-chart-cats"></canvas></div>
   </div>
 
   <div class="panel">
@@ -604,7 +605,7 @@ function sendPeriodSummary() {
   <!-- Swiss benchmark comparison -->
   <div class="chart-panel" style="margin-bottom:14px">
     <div class="chart-title">vs Swiss Benchmark (FSO data · Zürich · your income bracket)</div>
-    <canvas id="ins-bench-chart" height="180"></canvas>
+    <div class="chart-host" style="height:280px"><canvas id="ins-bench-chart"></canvas></div>
   </div>
 
   <!-- AI Analysis -->
@@ -627,6 +628,7 @@ function sendPeriodSummary() {
       <div class="ph"><span class="pt">Connection</span></div>
       <div style="padding:18px;display:flex;flex-direction:column;gap:12px">
         <div class="field" style="margin:0"><label>Apps Script URL</label><input id="cfg-url" type="text"></div>
+        <div class="conn-row"><button class="btn btn-g" type="button" onclick="runConnectionTest('cfg-url','cfg-url-status')">Test connection</button><span class="conn-status" id="cfg-url-status"></span></div>
         <div class="field" style="margin:0"><label>Budget per period (CHF)</label><input id="cfg-budget" type="number"></div>
         <div class="field" style="margin:0"><label>Period start day</label><input id="cfg-startday" type="number"></div>
         <div class="flex mt16">

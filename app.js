@@ -107,15 +107,49 @@ function go(name){
 // ═══════════════════════════════════════
 //  API — no Content-Type header on fetch
 // ═══════════════════════════════════════
+function validateScriptUrl(url){
+  if(!url) return 'Please enter your Apps Script Web App URL.';
+  const u=String(url).trim();
+  if(!/^https:\/\/script\.google(usercontent)?\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec(\?.*)?$/.test(u)){
+    return 'That doesn\u2019t look like a deployed Apps Script URL. It should end with /exec.';
+  }
+  return null;
+}
 async function apiGet(p){
-  const r=await fetch(S.url+'?'+new URLSearchParams(p));
-  if(!r.ok) throw new Error('HTTP '+r.status);
-  return r.json();
+  if(!S.url) throw new Error('Not connected — paste your Apps Script URL in Settings.');
+  let r;
+  try { r = await fetch(S.url+'?'+new URLSearchParams(p)); }
+  catch(e){ throw new Error('Network error — check your connection or that the Apps Script is deployed (Anyone access).'); }
+  if(!r.ok) throw new Error('HTTP '+r.status+' — re-deploy the Apps Script and copy the new /exec URL.');
+  let txt; try { txt = await r.text(); } catch(e){ throw new Error('Empty response from Apps Script.'); }
+  try { return JSON.parse(txt); } catch(e){
+    if(txt && /<html/i.test(txt)) throw new Error('Apps Script returned an HTML page — the deployment may need re-authorising.');
+    throw new Error('Invalid JSON from Apps Script.');
+  }
 }
 async function apiPost(body){
-  const r=await fetch(S.url,{method:'POST',body:JSON.stringify(body)});
+  if(!S.url) throw new Error('Not connected — paste your Apps Script URL in Settings.');
+  let r;
+  try { r = await fetch(S.url,{method:'POST',body:JSON.stringify(body)}); }
+  catch(e){ throw new Error('Network error — check your connection.'); }
   if(!r.ok) throw new Error('HTTP '+r.status);
-  return r.json();
+  let txt; try { txt = await r.text(); } catch(e){ throw new Error('Empty response from Apps Script.'); }
+  try { return JSON.parse(txt); } catch(e){
+    if(txt && /<html/i.test(txt)) throw new Error('Apps Script returned HTML — re-authorise the deployment.');
+    throw new Error('Invalid JSON from Apps Script.');
+  }
+}
+async function testConnection(url){
+  const probe = (url||'').trim();
+  const err = validateScriptUrl(probe);
+  if(err) return { ok:false, msg: err };
+  try{
+    const r = await fetch(probe+'?action=getMonthly');
+    if(!r.ok) return { ok:false, msg:'HTTP '+r.status+' — check the deployment is Anyone access.' };
+    const txt = await r.text();
+    try{ JSON.parse(txt); } catch(e){ return { ok:false, msg:'Response was not JSON — re-authorise the deployment.' }; }
+    return { ok:true, msg:'Connected \u2713' };
+  }catch(e){ return { ok:false, msg:'Network error: '+e.message }; }
 }
 
 // ═══════════════════════════════════════
@@ -129,19 +163,42 @@ function setStatus(st){
 // ═══════════════════════════════════════
 //  SETUP / SETTINGS
 // ═══════════════════════════════════════
-function setup(){
+async function setup(){
   const url=document.getElementById('s-url').value.trim();
-  if(!url){toast('Please enter the Apps Script URL','e');return;}
+  const err=validateScriptUrl(url);
+  if(err){ toast(err,'e'); document.getElementById('s-url').classList.add('input-error'); return; }
+  toast('Testing connection\u2026','l');
+  const t=await testConnection(url);
+  if(!t.ok){ hideToast(); toast(t.msg,'e',5000); return; }
+  hideToast();
   S.url=url;
   S.budget=parseFloat(document.getElementById('s-budget').value)||1800;
   S.startDay=parseInt(document.getElementById('s-startday').value)||10;
   persist(); init();
 }
-function saveSettings(){
-  S.url=document.getElementById('cfg-url').value.trim();
+async function saveSettings(){
+  const url=document.getElementById('cfg-url').value.trim();
+  const err=validateScriptUrl(url);
+  if(err){ toast(err,'e'); document.getElementById('cfg-url').classList.add('input-error'); return; }
+  toast('Testing connection\u2026','l');
+  const t=await testConnection(url);
+  if(!t.ok){ hideToast(); toast(t.msg,'e',5000); return; }
+  hideToast();
+  S.url=url;
   S.budget=parseFloat(document.getElementById('cfg-budget').value)||1800;
   S.startDay=parseInt(document.getElementById('cfg-startday').value)||10;
   persist(); init();
+}
+async function runConnectionTest(inputId, statusId){
+  const inp=document.getElementById(inputId);
+  const out=document.getElementById(statusId);
+  if(!inp||!out) return;
+  const url=inp.value.trim();
+  out.textContent='Testing\u2026'; out.style.color='var(--amber)';
+  const t=await testConnection(url);
+  out.textContent=t.msg;
+  out.style.color=t.ok?'var(--green)':'var(--red)';
+  inp.classList.toggle('input-error', !t.ok);
 }
 function resetApp(){ if(!confirm('Reset all settings?')) return; App.storage.clear(); location.reload(); }
 
@@ -681,6 +738,7 @@ function renderMonthlyCharts(sorted){
   const bCtx=document.getElementById('m-chart-bar');
   if(bCtx){
     if(_mBar) _mBar.destroy();
+    const bp=bCtx.parentElement; if(bp){ bp.style.position='relative'; if(!bp.style.height) bp.style.height='260px'; }
     _mBar=new Chart(bCtx,{
       type:'bar',
       data:{
@@ -693,6 +751,7 @@ function renderMonthlyCharts(sorted){
       },
       options:{
         responsive:true,
+        maintainAspectRatio:false,
         plugins:{legend:{labels:legStyle},tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': '+chf(ctx.raw)}}},
         scales:{
           x:{ticks:tickStyle,grid:{color:gridColor}},
@@ -706,6 +765,7 @@ function renderMonthlyCharts(sorted){
   const sCtx=document.getElementById('m-chart-saving');
   if(sCtx){
     if(_mSaving) _mSaving.destroy();
+    const sp=sCtx.parentElement; if(sp){ sp.style.position='relative'; if(!sp.style.height) sp.style.height='260px'; }
     _mSaving=new Chart(sCtx,{
       type:'bar',
       data:{
@@ -721,6 +781,7 @@ function renderMonthlyCharts(sorted){
       },
       options:{
         responsive:true,
+        maintainAspectRatio:false,
         plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>chf(ctx.raw)}}},
         scales:{
           x:{ticks:tickStyle,grid:{color:gridColor}},
@@ -755,11 +816,13 @@ function renderMonthlyCharts(sorted){
       };
     }).filter(Boolean);
 
+    const cp=cCtx.parentElement; if(cp){ cp.style.position='relative'; if(!cp.style.height) cp.style.height='280px'; }
     _mCats=new Chart(cCtx,{
       type:'bar',
       data:{labels:periods,datasets:catDatasets},
       options:{
         responsive:true,
+        maintainAspectRatio:false,
         plugins:{
           legend:{labels:{...legStyle,boxWidth:10}},
           tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': '+chf(ctx.raw)}}
@@ -785,15 +848,29 @@ function renderCharts(){
   if(!lCtx) return;
   if(_line){ _line.destroy(); _line=null; }
 
+  // Set a fixed parent height so Chart.js can size correctly on mobile
+  const parent=lCtx.parentElement;
+  if(parent){ parent.style.position='relative'; if(!parent.style.height) parent.style.height='260px'; }
+
   const pd=periodBounds(S.sheet);
   const now=new Date(); now.setHours(0,0,0,0);
 
   // Build day labels for the period so far
   const dayLabels=[];
   const days=[];
-  for(let d=new Date(pd.start);d<=now&&d<pd.end;d.setDate(d.getDate()+1)){
+  // Always render at least the first day of the period to avoid an empty canvas
+  const endLoop=new Date(Math.min(now.getTime(), pd.end.getTime()-1));
+  for(let d=new Date(pd.start);d<=endLoop;d.setDate(d.getDate()+1)){
     days.push(d.toISOString().slice(0,10));
     dayLabels.push(d.toLocaleDateString('en-CH',{day:'2-digit',month:'short'}));
+  }
+  if(!days.length){
+    // Period hasn't started yet — show placeholder text in the canvas area
+    const ctx=lCtx.getContext('2d');
+    ctx.clearRect(0,0,lCtx.width,lCtx.height);
+    ctx.font='12px DM Mono, monospace'; ctx.fillStyle='#62627a'; ctx.textAlign='center';
+    ctx.fillText('No data yet for this period', lCtx.width/2, lCtx.height/2);
+    return;
   }
 
   // Helper: cumulative daily totals for a set of entries (negatives = refunds, go below 0)
@@ -852,6 +929,7 @@ function renderCharts(){
     data:{labels:dayLabels,datasets},
     options:{
       responsive:true,
+      maintainAspectRatio:false,
       interaction:{mode:'index',intersect:false},
       plugins:{
         legend:{
@@ -1036,6 +1114,7 @@ function renderInsights(){
     if(bCtx&&typeof Chart!=='undefined'){
       if(window._insBenchChart) window._insBenchChart.destroy();
       const bCats=CATS.filter(function(c){ return c.id!=='refund'&&((spent[c.id]||0)>0||(bench[c.id]||0)>0); });
+      const ip=bCtx.parentElement; if(ip){ ip.style.position='relative'; if(!ip.style.height) ip.style.height='280px'; }
       window._insBenchChart=new Chart(bCtx,{
         type:'bar',
         data:{
@@ -1047,6 +1126,7 @@ function renderInsights(){
         },
         options:{
           responsive:true,
+          maintainAspectRatio:false,
           plugins:{legend:{labels:{color:'#62627a',font:{family:'DM Mono',size:10},boxWidth:10,padding:10}},tooltip:{callbacks:{label:function(ctx){ return ctx.dataset.label+': '+chf(ctx.raw); }}}},
           scales:{x:{ticks:{color:'#62627a',font:{family:'DM Mono',size:10}},grid:{color:'#1e1e28'}},y:{ticks:{color:'#62627a',font:{family:'DM Mono',size:10},callback:function(v){ return 'CHF '+v; }},grid:{color:'#1e1e28'}}}
         }
@@ -1060,6 +1140,77 @@ function renderInsights(){
   }
 }
 
+// Local heuristic analysis — no external API needed, no API key required.
+// Produces 4-5 paragraphs with specific numbers, mirroring the previous AI output.
+function localSpendingAnalysis(){
+  const p=getProfile();
+  const bench=getBenchmark();
+  const spent=catSpending();
+  const myAvg=getMyAvgPerCat();
+  const pd=periodBounds(S.sheet);
+  const totalSpent=Object.values(spent).reduce((s,v)=>s+Math.max(0,v),0);
+  const totalBench=Object.values(bench).reduce((s,v)=>s+v,0);
+  const savings=S.budget-totalSpent;
+  const savingsRate=S.budget>0?(savings/S.budget*100):0;
+  const pctDays=pd.total>0?(pd.passed/pd.total*100):0;
+
+  // Rank categories by overspend vs benchmark
+  const ranked=CATS.filter(c=>c.id!=='refund').map(c=>{
+    const s=Math.max(0,spent[c.id]||0);
+    const b=bench[c.id]||0;
+    const delta=b>0?((s/b)-1)*100:0;
+    return { c, s, b, delta };
+  }).filter(x=>x.s>0||x.b>0);
+  const over=ranked.filter(x=>x.delta>15).sort((a,b)=>b.delta-a.delta).slice(0,3);
+  const under=ranked.filter(x=>x.delta<-15).sort((a,b)=>a.delta-b.delta).slice(0,2);
+  const topSpendCat=[...ranked].sort((a,b)=>b.s-a.s)[0];
+
+  const fmt=v=>'CHF '+Math.round(v).toLocaleString('en-CH');
+  const pct=v=>(v>0?'+':'')+Math.round(v)+'%';
+
+  const paras=[];
+  // 1) Overall health
+  const health=totalSpent<=S.budget*(pctDays/100||1)?'on track':'running hot';
+  paras.push('Your period is '+health+'. You\u2019ve spent '+fmt(totalSpent)+' across '+pd.passed+' of '+pd.total+' days — that\u2019s '+Math.round((totalSpent/Math.max(1,S.budget))*100)+'% of your '+fmt(S.budget)+' budget with '+Math.round(100-pctDays)+'% of the period remaining. Savings rate so far: '+savingsRate.toFixed(1)+'%.');
+
+  // 2) Standout categories
+  if(over.length){
+    paras.push('Standouts above benchmark: '+over.map(o=>o.c.icon+' '+o.c.name+' at '+fmt(o.s)+' ('+pct(o.delta)+' vs Swiss '+fmt(o.b)+')').join(', ')+'. These are the levers with the most room to move if you want to bring the total down.');
+  } else if(under.length){
+    paras.push('You\u2019re running below benchmark in '+under.map(o=>o.c.icon+' '+o.c.name+' ('+pct(o.delta)+')').join(', ')+' — a sign of healthy restraint in these areas.');
+  } else {
+    paras.push('No single category is wildly off benchmark this period — spending is broadly proportional. The biggest line is '+(topSpendCat?topSpendCat.c.icon+' '+topSpendCat.c.name+' at '+fmt(topSpendCat.s):'—')+'.');
+  }
+
+  // 3) Behavioural pattern
+  const ccTotal=(S.cc||[]).reduce((s,e)=>s+Math.max(0,parseFloat(e.amount)||0),0);
+  const ddTotal=(S.dd||[]).reduce((s,e)=>s+Math.max(0,parseFloat(e.amount)||0),0);
+  const tilt=ccTotal>ddTotal*1.3?'credit-heavy':ddTotal>ccTotal*1.3?'debit-heavy':'balanced';
+  paras.push('Account tilt this period is '+tilt+' (CC '+fmt(ccTotal)+' vs Debit '+fmt(ddTotal)+'). '+(tilt==='credit-heavy'?'Worth checking the CC statement — small recurring charges add up fastest there.':tilt==='debit-heavy'?'Direct debit dominance usually means fixed costs are doing most of the work.':'Roughly even split — cashflow is well distributed between accounts.'));
+
+  // 4) One concrete action
+  if(over.length){
+    const top=over[0];
+    const cut=Math.round((top.s-top.b)*0.5);
+    paras.push('One action: cap '+top.c.icon+' '+top.c.name+' for the rest of this period. Trimming it by '+fmt(cut)+' alone would bring the category roughly in line with benchmark and add '+fmt(cut)+' back to savings.');
+  } else if(savingsRate<10){
+    paras.push('One action: set a per-category budget on the '+(topSpendCat?topSpendCat.c.name:'biggest')+' line in the Categories tab. Visual progress bars make overspend obvious before month-end.');
+  } else {
+    paras.push('One action: lock in current habits by exporting a JSON backup from Settings. Your baseline is healthy and worth preserving as a reference point for next period.');
+  }
+
+  // 5) Something done well
+  if(under.length){
+    const u=under[0];
+    paras.push('Done well: '+u.c.icon+' '+u.c.name+' is '+pct(u.delta)+' vs benchmark ('+fmt(u.s)+' vs '+fmt(u.b)+'). Keep that discipline — it\u2019s where your savings rate is being earned.');
+  } else if(savingsRate>=15){
+    paras.push('Done well: savings rate of '+savingsRate.toFixed(1)+'% is solidly above the 10% threshold most planners flag as healthy. The pace of '+(totalSpent/Math.max(1,pd.passed)).toFixed(0)+' CHF/day is sustainable.');
+  } else {
+    paras.push('Done well: tracking consistently across '+_monthlyData.length+' period(s). The data quality is what makes the rest of these insights possible.');
+  }
+  return paras;
+}
+
 async function runAIAnalysis(){
   const btn=document.getElementById('ai-btn');
   const out=document.getElementById('ai-output');
@@ -1067,27 +1218,10 @@ async function runAIAnalysis(){
   btn.disabled=true; btn.textContent='Analysing\u2026';
   out.innerHTML='<div style="display:flex;align-items:center;gap:10px;color:var(--muted)"><div class="spin"></div> Reading your spending patterns\u2026</div>';
   try{
-    const p=getProfile();
-    const bench=getBenchmark();
-    const spent=catSpending();
-    const myAvg=getMyAvgPerCat();
-    const pd=periodBounds(S.sheet);
-    const totalSpent=Object.values(spent).reduce(function(s,v){ return s+Math.max(0,v); },0);
-    const totalBench=Object.values(bench).reduce(function(s,v){ return s+v; },0);
-    const savings=S.budget-totalSpent;
-    const savingsRate=S.budget>0?(savings/S.budget*100).toFixed(1):0;
-    const catLines=CATS.filter(function(c){ return c.id!=='refund'; }).map(function(c){
-      const s=Math.max(0,spent[c.id]||0);
-      const b=bench[c.id]||0;
-      const avg=myAvg[c.id]||0;
-      const pct=b>0?((s/b-1)*100).toFixed(0):null;
-      return '- '+c.name+': CHF '+s.toFixed(0)+' spent | benchmark CHF '+b+(pct!==null?' ('+(pct>0?'+':'')+pct+'%)':'')+' | your avg CHF '+avg.toFixed(0);
-    }).join('\n');
-    const prompt='You are a sharp, honest personal finance advisor. Analyse this spending and give actionable, specific insights. Be direct — no fluff, no generic advice.\n\nPROFILE:\n- Age: '+p.age+', household: '+p.hh+', income: CHF '+p.income+'/month\n- Budget: CHF '+S.budget+' | Period: '+pd.label+' ('+pd.passed+'/'+pd.total+' days)\n- Periods tracked: '+_monthlyData.length+'\n\nSPENDING vs BENCHMARK:\n'+catLines+'\n\nSUMMARY:\n- Total: CHF '+totalSpent.toFixed(0)+' vs budget CHF '+S.budget+' vs benchmark CHF '+totalBench+'\n- Saving: CHF '+savings.toFixed(0)+' ('+savingsRate+'%)\n\nWrite 4-5 short paragraphs: 1) overall health 2) 2-3 standout categories 3) behavioural pattern 4) one concrete action 5) one thing done well. Use specific numbers. No bullet points inside paragraphs.';
-    const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:prompt}]})});
-    const data=await res.json();
-    const text=(data.content&&data.content[0]&&data.content[0].text)||'No response.';
-    out.innerHTML=text.split(/\n\n+/).filter(function(p){ return p.trim(); }).map(function(p){ return '<div class="ai-paragraph">'+p.trim()+'</div>'; }).join('');
+    // Local heuristic analysis — fast, private, no API key required.
+    await new Promise(r=>setTimeout(r,300));
+    const paras=localSpendingAnalysis();
+    out.innerHTML=paras.map(t=>'<div class="ai-paragraph">'+t+'</div>').join('');
   } catch(e){
     out.innerHTML='<div style="color:var(--red);font-family:var(--mono);font-size:12px">Analysis failed: '+e.message+'</div>';
   }
@@ -1143,5 +1277,14 @@ function init(){
   go('dashboard');
   syncAll();
 }
+
+// Re-render charts on resize / orientation change (debounced)
+let _resizeT;
+function _onResize(){
+  clearTimeout(_resizeT);
+  _resizeT=setTimeout(()=>{ try{ renderCharts(); }catch(e){} }, 180);
+}
+window.addEventListener('resize', _onResize);
+window.addEventListener('orientationchange', _onResize);
 
 init();
